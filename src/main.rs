@@ -1,3 +1,5 @@
+// first distro
+
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::{env, io, time};
@@ -8,13 +10,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
     // Assign root from cmd input
-    let root: &Path = parse_path(&args).expect("not a valid path");
+    let root = parse_path(&args).expect("not a valid path");
     // Recursively build directory
     let dir = WalkDir::new(&root);
+
     let (files, dirs): (Vec<PathBuf>, Vec<PathBuf>) = {
         // Retrieve all entries from WalkDir
         let pool = pool(dir).expect("unable to retrieve entries from WalkDir");
-        // check and pull all paths that are files, seperating from all paths that are directories
+        // Seperate all `Path`s that are directories
         partition_from(pool).expect("unable to partition files from directories")
     };
 
@@ -28,7 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let out_stat = format!(
-        "\nTotal number of files counted: {}\nTotal number of directories traversed: {}\nTotal size of all files: {}\n",
+        "\nTotal number of files counted: {}\nTotal number of directories traversed: {}\nTotal size of all files: {} bytes\n",
         fcount, dcount, total_size
     );
 
@@ -70,18 +73,12 @@ fn file_count(files: Vec<PathBuf>) -> ([u64; 6], u64) {
             .expect("error with metadata while matching")
             .len()
         {
-            // Empty
-            0 => fc_by_size[0] += 1,
-            // 1 byte to 999 bytes
-            1u64..=1023u64 => fc_by_size[1] += 1,
-            // 1kb to 0.99 kb
-            1024u64..=1_048_575_u64 => fc_by_size[2] += 1,
-            // 1 mb to 0.99 mb
-            1_048_576_u64..=1_073_741_823_u64 => fc_by_size[3] += 1,
-            // 1 gb to 0.99 gb
-            1_073_741_824_u64..=109_951_162_775_u64 => fc_by_size[4] += 1,
-            // 1 tb or larger
-            109_951_162_776_u64..=std::u64::MAX => fc_by_size[5] += 1,
+            0 => fc_by_size[0] += 1,                                       // Empty
+            1u64..=1023u64 => fc_by_size[1] += 1,                          // 1 byte to 999 bytes
+            1024u64..=1_048_575_u64 => fc_by_size[2] += 1,                 // 1kb to 0.99 kb
+            1_048_576_u64..=1_073_741_823_u64 => fc_by_size[3] += 1,       // 1 mb to 0.99 mb
+            1_073_741_824_u64..=109_951_162_775_u64 => fc_by_size[4] += 1, // 1 gb to 0.99 gb
+            109_951_162_776_u64..=std::u64::MAX => fc_by_size[5] += 1,     // 1 tb or larger
         };
     }
 
