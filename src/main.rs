@@ -1,8 +1,8 @@
-use std::error::Error;
 use std::fmt;
+use std::error::Error;
+use std::{env, io, time};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use std::{env, io, time};
 use walkdir::{DirEntry, WalkDir};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -31,7 +31,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         println!("Files encountered: {}", fs_count);
         println!("Directories traversed: {}", dr_count);
-        println!("Total size of all files: {}\n", Filesize::<Kilobytes>::from(total_size));
+        println!(
+            "Total size of all files: {}\n",
+            Filesize::<Kilobytes>::from(total_size)
+        );
     }
 
     let end = time::Instant::now();
@@ -146,8 +149,9 @@ where
             1 => "",
             _ => "s",
         };
-        
-        write!(f,
+
+        write!(
+            f,
             "{} {}{}",
             (self.bytes as f64) / (T::num_byte_in_unit() as f64),
             T::singular_name(),
