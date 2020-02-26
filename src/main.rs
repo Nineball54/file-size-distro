@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fmt;
-use std::fs::File;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::{env, io, time};
@@ -20,10 +19,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (fs_count, dr_count) = (files.len(), dirs.len());
     let (file_counter, total_size) = file_count(files);
-    let header = format!("++ File size distribution for : {} ++\n", &root.display());
 
     {
-        println!("{}", header);
+        println!("++ File size distribution for : {} ++\n", &root.display());
         println!("Files @ 0B            : {:4}", file_counter[0]);
         println!("Files > 1B  - 1,023B  : {:4}", file_counter[1]);
         println!("Files > 1KB - 1,023KB : {:4}", file_counter[2]);
@@ -33,7 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         println!("Files encountered: {}", fs_count);
         println!("Directories traversed: {}", dr_count);
-        println!("Total size of all files: {}\n", total_size);
+        println!("Total size of all files: {}\n", Filesize::<Kilobytes>::from(total_size));
     }
 
     let end = time::Instant::now();
@@ -109,28 +107,6 @@ impl SizeUnit for Kilobytes {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Megabytes;
-impl SizeUnit for Megabytes {
-    fn singular_name() -> String {
-        "MB".to_string()
-    }
-    fn num_byte_in_unit() -> u64 {
-        1_048_576
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Gigabytes;
-impl SizeUnit for Gigabytes {
-    fn singular_name() -> String {
-        "GB".to_string()
-    }
-    fn num_byte_in_unit() -> u64 {
-        1_073_741_824
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct Filesize<T: SizeUnit> {
     bytes: u64,
     unit: PhantomData<T>,
@@ -170,8 +146,8 @@ where
             1 => "",
             _ => "s",
         };
-        write!(
-            f,
+        
+        write!(f,
             "{} {}{}",
             (self.bytes as f64) / (T::num_byte_in_unit() as f64),
             T::singular_name(),
@@ -180,21 +156,7 @@ where
     }
 }
 
-impl<T> From<&File> for Filesize<T>
-where
-    T: SizeUnit,
-{
-    fn from(f: &File) -> Self {
-        Filesize {
-            bytes: f
-                .metadata()
-                .expect("error with metadata from file into filesize")
-                .len(),
-            unit: PhantomData,
-        }
-    }
-}
-
+// Can be expanded for From<File>, or any type that has an alias for Metadata
 impl<T> From<&PathBuf> for Filesize<T>
 where
     T: SizeUnit,
