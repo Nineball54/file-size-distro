@@ -1,6 +1,6 @@
 [package]
 name = "file-size-distro"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Cbedford"]
 edition = "2018"
 
