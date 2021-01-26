@@ -36,13 +36,13 @@ fn main() {
             "Total size of all files: {}\n",
             Filesize::<Kilobytes>::from(total_size)
         );
-    }
 
-    println!("Largest files:");
-    for (fname, fpath, fsize) in file_ranking {
-        println!("    Filename: {:?}", fname);
-        println!("    Filepath: {:?}", fpath);
-        println!("    Filesize: {:?}", fsize);
+        println!("Largest files:");
+        for (fsize, fpath, fname) in file_ranking {
+            println!("    Filesize: {:?} B", fsize);
+            println!("    Filepath: {:?}", fpath);
+            println!("    Filename: {:?}\n", fname);
+        };
     }
 
     let end = time::Instant::now();
@@ -69,57 +69,36 @@ fn partition_from(pool: Vec<DirEntry>) -> (Vec<PathBuf>, Vec<PathBuf>) {
         .partition(|path| path.is_file())
 }
 
-fn file_count(files: Vec<PathBuf>) -> ([u64; 6], u64, Vec<(String, PathBuf, u64)>) {
-    let mut file_ranking: Vec<(String, PathBuf, u64)> = vec![];
+fn file_count(files: Vec<PathBuf>) -> ([u64; 6], u64, Vec<(u64, PathBuf, String)>) {
+    let mut file_ranking: Vec<(u64, PathBuf, String)> = vec![];
     let mut counter: [u64; 6] = [0; 6];
 
     for file in &files {
         // Record filesizes
-        match Filesize::<Bytes>::from(file).bytes {
+        let fsize: u64 = Filesize::<Bytes>::from(file).bytes;
+        let fpath: PathBuf = file.as_path().to_path_buf();
+        let fname: String = file
+            .file_name()
+            .expect("could not transform to OsStr")
+            .to_os_string()
+            .into_string()
+            .expect("could not release String from Option");
+
+        match fsize {
             0 => counter[0] += 1,                                 // Empty file
             1..=1_023 => counter[1] += 1,                         // 1 byte to 0.99KB
             1_024..=1_048_575 => counter[2] += 1,                 // 1 kilo to 0.99MB
             1_048_576..=1_073_741_823 => counter[3] += 1,         // 1 mega to 0.99GB
             1_073_741_824..=1_099_511_627_775 => counter[4] += 1, // 1 giga to 0.99TB
             1_099_511_627_776..=std::u64::MAX => counter[5] += 1, // 1 terabyte or larger
-        }
-
-        if file_ranking.is_empty() {
-            file_ranking.push((
-                file.file_name()
-                    .expect("could not transform to OsStr")
-                    .to_os_string()
-                    .into_string()
-                    .expect("could not release String from option"),
-                file.as_path().to_path_buf(),
-                Filesize::<Bytes>::from(file).bytes,
-            ));
-        } else if file_ranking
-            .iter()
-            .last()
-            .expect("could not retrieve last elem")
-            .2
-            < Filesize::<Bytes>::from(file).bytes
-        {
-            let last_posi = file_ranking.len();
-            file_ranking.insert(
-                last_posi,
-                (
-                    file.file_name()
-                        .expect("could not transform to OsStr")
-                        .to_os_string()
-                        .into_string()
-                        .expect("could not release String from option"),
-                    file.as_path().to_path_buf(),
-                    Filesize::<Bytes>::from(file).bytes,
-                ),
-            );
-        } else {
-            println!("DOES NOT MEET CRITERIA, NOT PUSHING TO VEC!");
         };
+
+        file_ranking.push((fsize, fpath, fname));
+        file_ranking.sort_unstable();
     }
 
-    file_ranking.sort();
+    file_ranking.reverse(); // Pull largest elements into first 10 indices
+    file_ranking.truncate(10); // Cut off remainder of 11+ elements
 
     let total_file_size: &u64 = &files
         .iter()
