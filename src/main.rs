@@ -1,24 +1,25 @@
 use std::fmt;
-use std::error::Error;
-use std::{env, io, time};
+use std::fs;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use std::{env, time};
 use walkdir::{DirEntry, WalkDir};
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[allow(dead_code)]
+fn main() {
     let start = time::Instant::now();
     let args: Vec<String> = env::args().collect();
 
-    let root = parse_path(&args).expect("not a valid path");
+    let root = parse_path(&args); // Determine path
     let dir = WalkDir::new(&root);
 
     let (files, dirs): (Vec<PathBuf>, Vec<PathBuf>) = {
-        let pool = pool(dir).expect("unable to retrieve entries from WalkDir");
-        partition_from(pool).expect("unable to partition files from directories")
+        let pool = pool(dir); // Retrieve entries from WalkDir
+        partition_from(pool) // Partition files from directories
     };
 
     let (fs_count, dr_count) = (files.len(), dirs.len());
-    let (file_counter, total_size) = file_count(files);
+    let (file_counter, total_size, file_ranking) = file_count(files);
 
     {
         println!("++ File size distribution for : {} ++\n", &root.display());
@@ -37,35 +38,43 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
+    println!("Largest files:");
+    for (fname, fpath, fsize) in file_ranking {
+        println!("    Filename: {:?}", fname);
+        println!("    Filepath: {:?}", fpath);
+        println!("    Filesize: {:?}", fsize);
+    }
+
     let end = time::Instant::now();
     println!("Run time: {:?}\n", end.duration_since(start));
-    Ok(())
 }
 
-fn parse_path(args: &[String]) -> Result<&Path, io::Error> {
+fn parse_path(args: &[String]) -> &Path {
     // If there's no `args` entered, the executable will search it's own path.
     match args.len() {
-        1 => Ok(Path::new(&args[0])),
-        _ => Ok(Path::new(&args[1])),
+        1 => Path::new(&args[0]),
+        _ => Path::new(&args[1]),
     }
 }
 
-fn pool(dir: WalkDir) -> Result<Vec<DirEntry>, Box<dyn Error>> {
+fn pool(dir: WalkDir) -> Vec<DirEntry> {
     // Check each item for errors and drop possible invalid `DirEntry`s
-    Ok(dir.into_iter().filter_map(|e| e.ok()).collect())
+    dir.into_iter().filter_map(|e| e.ok()).collect()
 }
 
-fn partition_from(pool: Vec<DirEntry>) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
+fn partition_from(pool: Vec<DirEntry>) -> (Vec<PathBuf>, Vec<PathBuf>) {
     // Read `Path` from `DirEntry`, checking if `Path` is a file or directory.
-    Ok(pool
-        .into_iter()
+    pool.into_iter()
         .map(|e| e.into_path())
-        .partition(|path| path.is_file()))
+        .partition(|path| path.is_file())
 }
 
-fn file_count(files: Vec<PathBuf>) -> ([u64; 6], u64) {
+fn file_count(files: Vec<PathBuf>) -> ([u64; 6], u64, Vec<(String, PathBuf, u64)>) {
+    let mut file_ranking: Vec<(String, PathBuf, u64)> = vec![];
     let mut counter: [u64; 6] = [0; 6];
+
     for file in &files {
+        // Record filesizes
         match Filesize::<Bytes>::from(file).bytes {
             0 => counter[0] += 1,                                 // Empty file
             1..=1_023 => counter[1] += 1,                         // 1 byte to 0.99KB
@@ -74,12 +83,49 @@ fn file_count(files: Vec<PathBuf>) -> ([u64; 6], u64) {
             1_073_741_824..=1_099_511_627_775 => counter[4] += 1, // 1 giga to 0.99TB
             1_099_511_627_776..=std::u64::MAX => counter[5] += 1, // 1 terabyte or larger
         }
+
+        if file_ranking.is_empty() {
+            file_ranking.push((
+                file.file_name()
+                    .expect("could not transform to OsStr")
+                    .to_os_string()
+                    .into_string()
+                    .expect("could not release String from option"),
+                file.as_path().to_path_buf(),
+                Filesize::<Bytes>::from(file).bytes,
+            ));
+        } else if file_ranking
+            .iter()
+            .last()
+            .expect("could not retrieve last elem")
+            .2
+            < Filesize::<Bytes>::from(file).bytes
+        {
+            let last_posi = file_ranking.len();
+            file_ranking.insert(
+                last_posi,
+                (
+                    file.file_name()
+                        .expect("could not transform to OsStr")
+                        .to_os_string()
+                        .into_string()
+                        .expect("could not release String from option"),
+                    file.as_path().to_path_buf(),
+                    Filesize::<Bytes>::from(file).bytes,
+                ),
+            );
+        } else {
+            println!("DOES NOT MEET CRITERIA, NOT PUSHING TO VEC!");
+        };
     }
 
-    let total_file_size = files
+    file_ranking.sort();
+
+    let total_file_size: &u64 = &files
         .iter()
         .fold(0, |acc, file| acc + Filesize::<Bytes>::from(file).bytes);
-    (counter, total_file_size)
+
+    (counter, *total_file_size, file_ranking)
 }
 
 trait SizeUnit: Copy {
@@ -176,22 +222,52 @@ where
     }
 }
 
+impl<T> From<fs::File> for Filesize<T>
+where
+    T: SizeUnit,
+{
+    fn from(f: fs::File) -> Self {
+        Filesize {
+            bytes: f
+                .metadata()
+                .expect("error with metadata from file into filesize")
+                .len(),
+            unit: PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_output() {
+    fn test_output_bytes() {
         use std::fs;
         use std::io::prelude::*;
 
-        let mut file = File::create("testing.txt").expect("could not create test file");
+        let mut file = fs::File::create("testing_11.txt").expect("could not create test file");
         file.write_all(b"hello world")
             .expect("could not write to test file"); // 11 bytes
 
-        let size = Filesize::<Bytes>::from(&file);
+        let size = Filesize::<Bytes>::from(file);
         assert_eq!(size.bytes, 11_u64);
 
-        fs::remove_file("testing.txt").expect("could not remove test file");
+        fs::remove_file("testing_11.txt").expect("could not remove test file");
+    }
+
+    #[test]
+    fn test_output_thousand() {
+        use std::fs;
+        use std::io::prelude::*;
+
+        let mut file = fs::File::create("testing_1000.txt").expect("could not create test file");
+        file.write_all(b"Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean massa. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Donec quam felis, ultricies nec, pellentesque eu, pretium quis, sem. Nulla consequat massa quis enim. Donec pede justo, fringilla vel, aliquet nec, vulputate eget, arcu. In enim justo, rhoncus ut, imperdiet a, venenatis vitae, justo. Nullam dictum felis eu pede mollis pretium. Integer tincidunt. Cras dapibus. Vivamus elementum semper nisi. Aenean vulputate eleifend tellus. Aenean leo ligula, porttitor eu, consequat vitae, eleifend ac, enim. Aliquam lorem ante, dapibus in, viverra quis, feugiat a, tellus. Phasellus viverra nulla ut metus varius laoreet. Quisque rutrum. Aenean imperdiet. Etiam ultricies nisi vel augue. Curabitur ullamcorper ultricies nisi. Nam eget dui. Etiam rhoncus. Maecenas tempus, tellus eget condimentum rhoncus, sem quam semper libero, sit amet adipiscing sem neque sed ipsum. N")
+            .expect("could not write to test file"); // 1000 bytes (1 KB)
+
+        let size = Filesize::<Bytes>::from(file);
+        assert_eq!(size.bytes, 1000_u64);
+
+        fs::remove_file("testing_1000.txt").expect("could not remove test file");
     }
 }
